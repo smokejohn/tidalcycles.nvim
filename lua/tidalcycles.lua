@@ -276,7 +276,14 @@ local function get_children_of_type(node, type, children, depth)
     end
 end
 
+local function is_empty(table)
+    return next(table) == nil
+end
+
 --- Silences all streams in the node under the cursor
+--- TODO: extend this to also pickup non standard patterns
+--- created by the user e.g `p '123'` or `p "test"`
+--- TODO: Add a single line version of this function
 function M.silence_node()
     local node = get_node_at_cursor()
     if not node then
@@ -290,11 +297,35 @@ function M.silence_node()
         return
     end
 
+    -- a set for all default streams (d1-d16)
+    local streamlist = {}
+    for i = 1, 16 do
+        streamlist['d' .. i] = true
+    end
+
+    local used_streams = {}
+
+    -- Gather all variable TSNodes and check if they are d1-d16
     local children = {}
     get_children_of_type(node, 'variable', children)
     for _, child in pairs(children) do
-        print(node:sexpr())
+        local node_text = treesitter.get_node_text(child, 0)
+        if streamlist[node_text] then
+            table.insert(used_streams, node_text)
+        end
     end
+
+    if is_empty(used_streams) then
+        return
+    end
+
+    local silence_cmd = ':{\ndo\n'
+    for _, stream in pairs(used_streams) do
+        silence_cmd = silence_cmd .. '  ' .. stream .. ' $ silence\n'
+    end
+    silence_cmd = silence_cmd .. ':}'
+    flash_highlight(node, 0, 'Substitute', 250)
+    M.sendline(silence_cmd)
 end
 
 --- Sends Treesitter Haskell Parser top_splice node to Tidal
