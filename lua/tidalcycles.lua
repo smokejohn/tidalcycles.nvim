@@ -1,5 +1,6 @@
 local M = {}
-local ts_utils = require('vim.treesitter')
+local treesitter = require('vim.treesitter')
+local ts_utils = require('nvim-treesitter.ts_utils')
 
 local DEFAULTS = {
     boot = {
@@ -15,7 +16,7 @@ local DEFAULTS = {
     },
     keymaps = {
         send_line = '<C-E>',
-        -- send_node = '<Leader>s',
+        send_node = '<Leader>cs',
         send_visual = '<C-E>',
         preview_sound = '<C-P>',
         hush = '<C-M>',
@@ -28,13 +29,13 @@ local KEYMAPS = {
         action = "yy<cmd>lua require('tidalcycles').send_reg()<CR><ESC>",
         description = 'send line to Tidal',
     },
-    -- send_node = {
-    --     mode = 'n',
-    --     action = function()
-    --         M.send_node()
-    --     end,
-    --     description = 'send treesitter node to Tidal',
-    -- },
+    send_node = {
+        mode = 'n',
+        action = function()
+            M.send_node()
+        end,
+        description = 'send treesitter node to Tidal',
+    },
     send_visual = {
         mode = 'v',
         action = "y<cmd>lua require('tidalcycles').send_reg()<CR>",
@@ -144,6 +145,19 @@ local function exit_tidal()
     state.launched = false
 end
 
+--- Highlights the given node with hl_group for the given period
+---@param node TSNode Treesitter node to apply the highlighting to
+---@param bufnr integer Buffer id, or 0 for current buffer
+---@param hl_group string Highlight group, See :h highlight-groups
+---@param timeout integer Time in milliseconds until highlight is cleared
+local function flash_highlight(node, bufnr, hl_group, timeout)
+    ts_utils.highlight_node(node, bufnr, 1, hl_group)
+
+    vim.defer_fn(function()
+        vim.api.nvim_buf_clear_namespace(bufnr, 1, 0, -1)
+    end, timeout)
+end
+
 local function key_map(key, mapping)
     vim.keymap.set(KEYMAPS[key].mode, mapping, KEYMAPS[key].action, {
         buffer = true,
@@ -155,6 +169,13 @@ function M.send(text)
     if not state.tidal_process then
         return
     end
+    vim.api.nvim_chan_send(state.tidal_process, ':{\n' .. text .. '\n:}' .. '\n')
+end
+
+function M.sendline(text)
+    if not state.tidal_process then
+        return
+    end
     vim.api.nvim_chan_send(state.tidal_process, text .. '\n')
 end
 
@@ -163,35 +184,50 @@ function M.send_reg(register)
         register = ''
     end
     local text = table.concat(vim.fn.getreg(register, 1, true), '\n')
-    M.send(':{\n' .. text .. '\n:}')
+    M.send(text)
 end
 
-function M.preview_sound(sound)
+--- Plays the sample under the cursor once
+--- TODO: Improve this so it plays only available samples
+--- TODO: Improve this so it plays the selected sample if specified
+--- (respects bd:4 and plays the fourth sample of bd folder instead of just the first one)
+--- TODO: Improve this so it plays all samples in a folder in ascending order if it
+--- is activated multiple times on a sample name without a sample specification (i.e bd vs. bd:4)
+---@param register integer
+function M.preview_sound(register)
     if not sound then
         sound = ''
     end
-    local text = table.concat(vim.fn.getreg(sound, 1, true))
+    local text = table.concat(vim.fn.getreg(register, 1, true))
     M.send('once $ s "' .. text .. '"')
 end
 
--- TODO: Fix this function
--- Currently fails because of deprecated calls (just a guess, need to test more)
+--- Sends Treesitter Haskell Parser top_splice node to Tidal
 function M.send_node()
-    local node = ts_utils.get_node_at_cursor(0)
-    local root
-    if node then
-        root = ts_utils.get_root_for_node(node)
+    -- Holds the (0,0) indexed cursor position
+    -- We check the cursor position here and push the cursor to column 1 if it
+    -- rests in column 0 since the haskell parser for treesitter returns the
+    -- first child of the whole tree (declarations node) in this case
+    local cursor_pos = vim.api.nvim_win_get_cursor(0)
+    -- convert to (0,0) indexed position instead of (1,0)
+    cursor_pos[1] = cursor_pos[1] - 1
+    if cursor_pos[2] == 0 then
+        cursor_pos[2] = 1
     end
-    if not root then
+
+    -- The node at the current cursor position
+    local node = treesitter.get_node({ bufnr = 0, pos = cursor_pos })
+    if not node then
+        print('Got invalid node')
         return
     end
-    local parent
-    if node then
-        parent = node:parent()
-    end
+
+    local root = node:tree():root()
+    local parent = node:parent()
+
+    -- Walk up the nodetree until we find the parent top_splice node
     while node ~= nil and node ~= root do
-        local t = node:type()
-        if t == 'top_splice' then
+        if node:type() == 'top_splice' then
             break
         end
         node = parent
@@ -199,11 +235,22 @@ function M.send_node()
             parent = node:parent()
         end
     end
-    if not node then
+
+    if not node or node == root then
+        print("Couldn't determine node parent")
         return
     end
-    local start_row, start_col, end_row, end_col = ts_utils.get_node_range(node)
-    local text = table.concat(vim.api.nvim_buf_get_text(0, start_row, start_col, end_row, end_col, {}), '\n')
+
+    -- fix end_row for nvim_buf_get_text call when node range goes to EOF
+    local bufferlength = vim.api.nvim_buf_line_count(0) - 1
+    local start_row, start_col, end_row, end_col = treesitter.get_node_range(node)
+    if end_row > bufferlength then
+        end_row = bufferlength
+    end
+    local bufferlines = vim.api.nvim_buf_get_text(0, start_row, start_col, end_row, end_col, {})
+
+    local text = table.concat(bufferlines, '\n')
+    flash_highlight(node, 0, 'Search', 250)
     M.send(text)
 end
 
