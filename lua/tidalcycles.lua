@@ -17,6 +17,7 @@ local DEFAULTS = {
     keymaps = {
         send_line = '<C-E>',
         send_node = '<Leader>cs',
+        silence_node = '<Leader>cm',
         send_visual = '<C-E>',
         preview_sound = '<C-P>',
         hush = '<C-M>',
@@ -27,31 +28,38 @@ local KEYMAPS = {
     send_line = {
         mode = 'n',
         action = "yy<cmd>lua require('tidalcycles').send_reg()<CR><ESC>",
-        description = 'send line to Tidal',
+        description = 'Send line to Tidal',
     },
     send_node = {
         mode = 'n',
         action = function()
             M.send_node()
         end,
-        description = 'send treesitter node to Tidal',
+        description = 'Send treesitter node to Tidal',
+    },
+    silence_node = {
+        mode = 'n',
+        action = function()
+            M.silence_node()
+        end,
+        description = 'Silence all streams contained in the treesitter node',
     },
     send_visual = {
         mode = 'v',
         action = "y<cmd>lua require('tidalcycles').send_reg()<CR>",
-        description = 'send selection to Tidal',
+        description = 'Send selection to Tidal',
     },
     preview_sound = {
         mode = 'n',
         action = "yiw<cmd>lua require('tidalcycles').preview_sound()<CR>",
-        description = 'preview sound under cursor with Tidal',
+        description = 'Preview sound under cursor with Tidal',
     },
     hush = {
         mode = 'n',
         action = function()
             M.send('hush')
         end,
-        description = "send 'hush' to Tidal",
+        description = "Send 'hush' to Tidal",
     },
 }
 
@@ -146,10 +154,10 @@ local function exit_tidal()
 end
 
 --- Highlights the given node with hl_group for the given period
----@param node TSNode Treesitter node to apply the highlighting to
----@param bufnr integer Buffer id, or 0 for current buffer
----@param hl_group string Highlight group, See :h highlight-groups
----@param timeout integer Time in milliseconds until highlight is cleared
+--- @param node TSNode Treesitter node to apply the highlighting to
+--- @param bufnr integer Buffer id, or 0 for current buffer
+--- @param hl_group string Highlight group, See :h highlight-groups
+--- @param timeout integer Time in milliseconds until highlight is cleared
 local function flash_highlight(node, bufnr, hl_group, timeout)
     ts_utils.highlight_node(node, bufnr, 1, hl_group)
 
@@ -193,17 +201,16 @@ end
 --- (respects bd:4 and plays the fourth sample of bd folder instead of just the first one)
 --- TODO: Improve this so it plays all samples in a folder in ascending order if it
 --- is activated multiple times on a sample name without a sample specification (i.e bd vs. bd:4)
----@param register integer
+--- @param register string
 function M.preview_sound(register)
-    if not sound then
-        sound = ''
+    if not register then
+        register = ''
     end
     local text = table.concat(vim.fn.getreg(register, 1, true))
     M.send('once $ s "' .. text .. '"')
 end
 
---- Sends Treesitter Haskell Parser top_splice node to Tidal
-function M.send_node()
+local function get_node_at_cursor()
     -- Holds the (0,0) indexed cursor position
     -- We check the cursor position here and push the cursor to column 1 if it
     -- rests in column 0 since the haskell parser for treesitter returns the
@@ -218,16 +225,23 @@ function M.send_node()
     -- The node at the current cursor position
     local node = treesitter.get_node({ bufnr = 0, pos = cursor_pos })
     if not node then
-        print('Got invalid node')
-        return
+        return nil
     end
 
+    return node
+end
+
+--- Gets the nearest ancestor node of specified type from treesitter
+--- @param node TSNode
+--- @param type string
+--- @return TSNode?
+local function get_ancestor_of_type(node, type)
     local root = node:tree():root()
     local parent = node:parent()
 
-    -- Walk up the nodetree until we find the parent top_splice node
+    -- Walk up the nodetree until we find a parent of type
     while node ~= nil and node ~= root do
-        if node:type() == 'top_splice' then
+        if node:type() == type then
             break
         end
         node = parent
@@ -237,7 +251,63 @@ function M.send_node()
     end
 
     if not node or node == root then
-        print("Couldn't determine node parent")
+        return nil
+    end
+
+    return node
+end
+
+--- Gets all children with type
+---@param node TSNode
+---@param type string
+---@param children TSNode[]
+---@param depth integer
+local function get_children_of_type(node, type, children, depth)
+    if not node then
+        return nil
+    end
+    depth = depth or 0
+
+    for child in node:iter_children() do
+        if child:type() == type then
+            table.insert(children, child)
+        end
+        get_children_of_type(child, type, children, depth + 1)
+    end
+end
+
+--- Silences all streams in the node under the cursor
+function M.silence_node()
+    local node = get_node_at_cursor()
+    if not node then
+        print('Got invalid node')
+        return
+    end
+
+    node = get_ancestor_of_type(node, 'top_splice')
+    if not node then
+        print('Could not determine top_splice')
+        return
+    end
+
+    local children = {}
+    get_children_of_type(node, 'variable', children)
+    for _, child in pairs(children) do
+        print(node:sexpr())
+    end
+end
+
+--- Sends Treesitter Haskell Parser top_splice node to Tidal
+function M.send_node()
+    local node = get_node_at_cursor()
+    if not node then
+        print('Got invalid node')
+        return
+    end
+
+    node = get_ancestor_of_type(node, 'top_splice')
+    if not node then
+        print('Could not determine top_splice')
         return
     end
 
