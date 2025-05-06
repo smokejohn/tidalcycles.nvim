@@ -15,11 +15,13 @@ local DEFAULTS = {
         split = 'v',
     },
     keymaps = {
+        preview_sound = '<C-P>',
         send_line = '<C-E>',
+        -- silence_line = '<Leader>cml',
         send_node = '<Leader>cs',
         silence_node = '<Leader>cm',
         send_visual = '<C-E>',
-        preview_sound = '<C-P>',
+        -- silence_visual = '<C-M>',
         hush = '<C-M>',
     },
 }
@@ -29,6 +31,13 @@ local KEYMAPS = {
         mode = 'n',
         action = "yy<cmd>lua require('tidalcycles').send_reg()<CR><ESC>",
         description = 'Send line to Tidal',
+    },
+    silence_line = {
+        mode = 'n',
+        action = function()
+            M.silence_line()
+        end,
+        description = 'Silence streams in line',
     },
     send_node = {
         mode = 'n',
@@ -49,6 +58,13 @@ local KEYMAPS = {
         action = "y<cmd>lua require('tidalcycles').send_reg()<CR>",
         description = 'Send selection to Tidal',
     },
+    silence_visual = {
+        mode = 'v',
+        action = function()
+            M.silence_visual()
+        end,
+        description = 'Silence stream in visual selection',
+    },
     preview_sound = {
         mode = 'n',
         action = "yiw<cmd>lua require('tidalcycles').preview_sound()<CR>",
@@ -57,7 +73,7 @@ local KEYMAPS = {
     hush = {
         mode = 'n',
         action = function()
-            M.send('hush')
+            M.sendline('hush')
         end,
         description = "Send 'hush' to Tidal",
     },
@@ -354,6 +370,10 @@ function M.send_node()
     flash_highlight(node, 0, 'Search', 250)
     M.send(text)
 end
+
+function M.silence_line() end
+
+function M.silence_visual() end
 
 function M.setup(args)
     args = vim.tbl_deep_extend('force', DEFAULTS, args)
