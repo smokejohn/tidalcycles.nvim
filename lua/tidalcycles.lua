@@ -1,6 +1,6 @@
 local M = {}
 local treesitter = require('vim.treesitter')
-local ts_utils = require('nvim-treesitter.ts_utils')
+local utils = require('utils')
 
 local DEFAULTS = {
     boot = {
@@ -67,7 +67,10 @@ local KEYMAPS = {
     },
     preview_sound = {
         mode = 'n',
-        action = "yiw<cmd>lua require('tidalcycles').preview_sound()<CR>",
+        -- action = "yiw<cmd>lua require('tidalcycles').preview_sound()<CR>",
+        action = function()
+            M.preview_sound()
+        end,
         description = 'Preview sound under cursor with Tidal',
     },
     hush = {
@@ -169,19 +172,6 @@ local function exit_tidal()
     state.launched = false
 end
 
---- Highlights the given node with hl_group for the given period
---- @param node TSNode Treesitter node to apply the highlighting to
---- @param bufnr integer Buffer id, or 0 for current buffer
---- @param hl_group string Highlight group, See :h highlight-groups
---- @param timeout integer Time in milliseconds until highlight is cleared
-local function flash_highlight(node, bufnr, hl_group, timeout)
-    ts_utils.highlight_node(node, bufnr, 1, hl_group)
-
-    vim.defer_fn(function()
-        vim.api.nvim_buf_clear_namespace(bufnr, 1, 0, -1)
-    end, timeout)
-end
-
 local function key_map(key, mapping)
     vim.keymap.set(KEYMAPS[key].mode, mapping, KEYMAPS[key].action, {
         buffer = true,
@@ -217,83 +207,17 @@ end
 --- (respects bd:4 and plays the fourth sample of bd folder instead of just the first one)
 --- TODO: Improve this so it plays all samples in a folder in ascending order if it
 --- is activated multiple times on a sample name without a sample specification (i.e bd vs. bd:4)
---- @param register string
-function M.preview_sound(register)
-    if not register then
-        register = ''
-    end
-    local text = table.concat(vim.fn.getreg(register, 1, true))
-    M.send('once $ s "' .. text .. '"')
-end
+function M.preview_sound()
+    local node = utils.get_node_at_cursor()
 
-local function get_node_at_cursor()
-    -- Holds the (0,0) indexed cursor position
-    -- We check the cursor position here and push the cursor to column 1 if it
-    -- rests in column 0 since the haskell parser for treesitter returns the
-    -- first child of the whole tree (declarations node) in this case
-    local cursor_pos = vim.api.nvim_win_get_cursor(0)
-    -- convert to (0,0) indexed position instead of (1,0)
-    cursor_pos[1] = cursor_pos[1] - 1
-    if cursor_pos[2] == 0 then
-        cursor_pos[2] = 1
+    if not node or node:type() ~= 'string' then
+        return
     end
 
-    -- The node at the current cursor position
-    local node = treesitter.get_node({ bufnr = 0, pos = cursor_pos })
-    if not node then
-        return nil
-    end
+    local word = vim.fn.expand('<cWORD>')
+    print(word)
 
-    return node
-end
-
---- Gets the nearest ancestor node of specified type from treesitter
---- @param node TSNode
---- @param type string
---- @return TSNode?
-local function get_ancestor_of_type(node, type)
-    local root = node:tree():root()
-    local parent = node:parent()
-
-    -- Walk up the nodetree until we find a parent of type
-    while node ~= nil and node ~= root do
-        if node:type() == type then
-            break
-        end
-        node = parent
-        if node then
-            parent = node:parent()
-        end
-    end
-
-    if not node or node == root then
-        return nil
-    end
-
-    return node
-end
-
---- Gets all children with type
----@param node TSNode
----@param type string
----@param children TSNode[]
----@param depth integer
-local function get_children_of_type(node, type, children, depth)
-    if not node then
-        return nil
-    end
-    depth = depth or 0
-
-    for child in node:iter_children() do
-        if child:type() == type then
-            table.insert(children, child)
-        end
-        get_children_of_type(child, type, children, depth + 1)
-    end
-end
-
-local function is_empty(table)
-    return next(table) == nil
+    -- M.send('once $ s "' .. text .. '"')
 end
 
 --- Silences all streams in the node under the cursor
@@ -301,13 +225,13 @@ end
 --- created by the user e.g `p '123'` or `p "test"`
 --- TODO: Add a single line version of this function
 function M.silence_node()
-    local node = get_node_at_cursor()
+    local node = utils.get_node_at_cursor()
     if not node then
         print('Got invalid node')
         return
     end
 
-    node = get_ancestor_of_type(node, 'top_splice')
+    node = utils.get_ancestor_of_type(node, 'top_splice')
     if not node then
         print('Could not determine top_splice')
         return
@@ -323,7 +247,7 @@ function M.silence_node()
 
     -- Gather all variable TSNodes and check if they are d1-d16
     local children = {}
-    get_children_of_type(node, 'variable', children)
+    utils.get_children_of_type(node, 'variable', children)
     for _, child in pairs(children) do
         local node_text = treesitter.get_node_text(child, 0)
         if streamlist[node_text] then
@@ -331,7 +255,7 @@ function M.silence_node()
         end
     end
 
-    if is_empty(used_streams) then
+    if utils.is_empty(used_streams) then
         return
     end
 
@@ -340,19 +264,19 @@ function M.silence_node()
         silence_cmd = silence_cmd .. '  ' .. stream .. ' $ silence\n'
     end
     silence_cmd = silence_cmd .. ':}'
-    flash_highlight(node, 0, 'Substitute', 250)
+    utils.flash_highlight(node, 0, 'Substitute', 250)
     M.sendline(silence_cmd)
 end
 
 --- Sends Treesitter Haskell Parser top_splice node to Tidal
 function M.send_node()
-    local node = get_node_at_cursor()
+    local node = utils.get_node_at_cursor()
     if not node then
         print('Got invalid node')
         return
     end
 
-    node = get_ancestor_of_type(node, 'top_splice')
+    node = utils.get_ancestor_of_type(node, 'top_splice')
     if not node then
         print('Could not determine top_splice')
         return
@@ -367,7 +291,7 @@ function M.send_node()
     local bufferlines = vim.api.nvim_buf_get_text(0, start_row, start_col, end_row, end_col, {})
 
     local text = table.concat(bufferlines, '\n')
-    flash_highlight(node, 0, 'Search', 250)
+    utils.flash_highlight(node, 0, 'Search', 250)
     M.send(text)
 end
 
