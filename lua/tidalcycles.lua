@@ -67,7 +67,6 @@ local KEYMAPS = {
     },
     preview_sound = {
         mode = 'n',
-        -- action = "yiw<cmd>lua require('tidalcycles').preview_sound()<CR>",
         action = function()
             M.preview_sound()
         end,
@@ -88,6 +87,12 @@ local state = {
     sclang = nil,
     tidal_process = nil,
     sclang_process = nil,
+}
+
+local last_sample = {
+    name = '',
+    num_played = 0,
+    timer = nil,
 }
 
 local function boot_tidal(args)
@@ -203,10 +208,10 @@ end
 
 --- Plays the sample under the cursor once
 --- TODO: Improve this so it plays only available samples
---- TODO: Improve this so it plays the selected sample if specified
---- (respects bd:4 and plays the fourth sample of bd folder instead of just the first one)
---- TODO: Improve this so it plays all samples in a folder in ascending order if it
---- is activated multiple times on a sample name without a sample specification (i.e bd vs. bd:4)
+--- Need to get sample info for this to work.
+--- Then we can also rework the counting up logic for sample names
+--- without specified sample number because we know the number of samples
+--- in a folder
 function M.preview_sound()
     local node = utils.get_node_at_cursor()
 
@@ -215,9 +220,40 @@ function M.preview_sound()
     end
 
     local word = vim.fn.expand('<cWORD>')
-    print(word)
+    local samplename = string.match(word, '%w%w+[:%d]*')
 
-    -- M.send('once $ s "' .. text .. '"')
+    if not samplename then
+        last_sample.name = ''
+        last_sample.num_played = 0
+        return
+    end
+
+    local tidalcmd = samplename
+    -- case for a sample with name only and no specific specific sample (bd vs. bd:4)
+    if not string.match(samplename, ':') then
+        -- Start a timer that clears the last sample info after 5 seconds
+        if last_sample.timer then
+            last_sample.timer:stop()
+        end
+        last_sample.timer = vim.uv.new_timer()
+        last_sample.timer:start(5000, 0, function()
+            last_sample.name = ''
+            last_sample.num_played = 0
+        end)
+
+        -- count up the sample number on each successive press on the same sample
+        if samplename == last_sample.name then
+            last_sample.num_played = last_sample.num_played + 1
+            tidalcmd = samplename .. ':' .. tostring(last_sample.num_played)
+        else -- reset on other samples
+            last_sample.num_played = 0
+        end
+
+        last_sample.name = samplename
+    end
+
+    -- TODO: maybe highlight flash sample range
+    M.sendline('once $ s "' .. tidalcmd .. '"')
 end
 
 --- Silences all streams in the node under the cursor
