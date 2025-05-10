@@ -339,7 +339,10 @@ function M.send_line()
     M.send_line_to_tidal(line_content)
 end
 
-function M.silence_line() 
+-- TODO: improve stream matching logic 
+-- currently could match wrong streams if samples share names with streams (d1-16)
+-- TODO: maybe extract shared code with silence_node to helper function
+function M.silence_line()
     local line = vim.api.nvim_get_current_line()
     print(line)
 
@@ -361,8 +364,14 @@ function M.silence_line()
         return
     end
 
-    vim.print(streams)
+    local silence_cmd = ':{\ndo\n'
+    for _, stream in pairs(streams) do
+        silence_cmd = silence_cmd .. '  ' .. stream .. ' $ silence\n'
+    end
+    silence_cmd = silence_cmd .. ':}'
     utils.flash_highlight_range(utils.get_current_line_range(), 0, "Substitute", 250)
+
+    M.send_line_to_tidal(silence_cmd)
 end
 
 function M.silence_visual() end
