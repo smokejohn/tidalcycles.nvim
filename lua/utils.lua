@@ -7,12 +7,42 @@ local ts_utils = require('nvim-treesitter.ts_utils')
 --- @param bufnr integer Buffer id, or 0 for current buffer
 --- @param hl_group string Highlight group, See :h highlight-groups
 --- @param timeout integer Time in milliseconds until highlight is cleared
-function Utils.flash_highlight(node, bufnr, hl_group, timeout)
+function Utils.flash_highlight_node(node, bufnr, hl_group, timeout)
     ts_utils.highlight_node(node, bufnr, 1, hl_group)
 
     vim.defer_fn(function()
         vim.api.nvim_buf_clear_namespace(bufnr, 1, 0, -1)
     end, timeout)
+end
+
+--- Highlights the given range with hl_group for the given period
+--- @param range integer[] Table containing { start_row, start_col, end_row, end_col }
+--- @param bufnr  integer Buffer id, or 0 for current buffer
+--- @param hl_group  string Highlight group, see :h highlight-groups
+--- @param timeout integer Time in milliseconds until highlight is cleared
+function Utils.flash_highlight_range(range, bufnr, hl_group, timeout)
+    ts_utils.highlight_range(range, bufnr, 1, hl_group)
+
+    vim.defer_fn(function()
+        vim.api.nvim_buf_clear_namespace(bufnr, 1, 0, -1)
+    end, timeout)
+end
+
+--- Gets table with range of current line
+---@return integer[] { start_row, start_col, end_row, end_col }
+function Utils.get_current_line_range()
+    local line = vim.fn.line('.')
+    return { line - 1, 0, line - 1, vim.fn.col('$') }
+end
+
+
+-- NOTE: WIP
+-- TODO: Finish tree traversal
+function Utils.get_nodes_in_range(range)
+    local parser = treesitter.get_parser()
+    if not parser then return end
+
+    local root = parser:parse()[1]:root()
 end
 
 function Utils.get_node_at_cursor()

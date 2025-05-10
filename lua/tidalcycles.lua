@@ -1,6 +1,7 @@
 local M = {}
 local treesitter = require('vim.treesitter')
 local utils = require('utils')
+local ts_utils = require('nvim-treesitter.ts_utils')
 
 local DEFAULTS = {
     boot = {
@@ -17,9 +18,9 @@ local DEFAULTS = {
     keymaps = {
         preview_sound = '<C-P>',
         send_line = '<C-E>',
-        -- silence_line = '<Leader>cml',
+        silence_line = '<Leader>cml',
         send_node = '<Leader>cs',
-        silence_node = '<Leader>cm',
+        silence_node = '<Leader>cmn',
         send_visual = '<C-E>',
         -- silence_visual = '<C-M>',
         hush = '<C-M>',
@@ -29,7 +30,9 @@ local DEFAULTS = {
 local KEYMAPS = {
     send_line = {
         mode = 'n',
-        action = "yy<cmd>lua require('tidalcycles').send_reg()<CR><ESC>",
+        action = function ()
+            M.send_line()
+        end,
         description = 'Send line to Tidal',
     },
     silence_line = {
@@ -75,7 +78,7 @@ local KEYMAPS = {
     hush = {
         mode = 'n',
         action = function()
-            M.sendline('hush')
+            M.send_line_to_tidal('hush')
         end,
         description = "Send 'hush' to Tidal",
     },
@@ -89,6 +92,7 @@ local state = {
     sclang_process = nil,
 }
 
+-- TODO: Remove once we know sample count and reworked preview_sound
 local last_sample = {
     name = '',
     num_played = 0,
@@ -184,26 +188,24 @@ local function key_map(key, mapping)
     })
 end
 
-function M.send(text)
-    if not state.tidal_process then
-        return
-    end
-    vim.api.nvim_chan_send(state.tidal_process, ':{\n' .. text .. '\n:}' .. '\n')
+function M.send_block_to_tidal(text)
+    M.send_line_to_tidal(':{\n' .. text .. '\n:}')
 end
 
-function M.sendline(text)
+function M.send_line_to_tidal(text)
     if not state.tidal_process then
         return
     end
     vim.api.nvim_chan_send(state.tidal_process, text .. '\n')
 end
 
-function M.send_reg(register)
+-- NOTE: Currently unused
+function M.send_register_to_tidal(register)
     if not register then
         register = ''
     end
     local text = table.concat(vim.fn.getreg(register, 1, true), '\n')
-    M.send(text)
+    M.send_block_to_tidal(text)
 end
 
 --- Plays the sample under the cursor once
@@ -253,7 +255,7 @@ function M.preview_sound()
     end
 
     -- TODO: maybe highlight flash sample range
-    M.sendline('once $ s "' .. tidalcmd .. '"')
+    M.send_line_to_tidal('once $ s "' .. tidalcmd .. '"')
 end
 
 --- Silences all streams in the node under the cursor
@@ -300,8 +302,8 @@ function M.silence_node()
         silence_cmd = silence_cmd .. '  ' .. stream .. ' $ silence\n'
     end
     silence_cmd = silence_cmd .. ':}'
-    utils.flash_highlight(node, 0, 'Substitute', 250)
-    M.sendline(silence_cmd)
+    utils.flash_highlight_node(node, 0, 'Substitute', 250)
+    M.send_line_to_tidal(silence_cmd)
 end
 
 --- Sends Treesitter Haskell Parser top_splice node to Tidal
@@ -327,11 +329,41 @@ function M.send_node()
     local bufferlines = vim.api.nvim_buf_get_text(0, start_row, start_col, end_row, end_col, {})
 
     local text = table.concat(bufferlines, '\n')
-    utils.flash_highlight(node, 0, 'Search', 250)
-    M.send(text)
+    utils.flash_highlight_node(node, 0, 'Search', 250)
+    M.send_block_to_tidal(text)
 end
 
-function M.silence_line() end
+function M.send_line()
+    local line_content = vim.api.nvim_get_current_line()
+    utils.flash_highlight_range(utils.get_current_line_range(), 0, "Search", 250)
+    M.send_line_to_tidal(line_content)
+end
+
+function M.silence_line() 
+    local line = vim.api.nvim_get_current_line()
+    print(line)
+
+    local function match_streams(text)
+        local streams = {}
+        for match in string.gmatch(text, "d1[0-6]") do
+            table.insert(streams, match)
+        end
+        for match in string.gmatch(text, "d[1-9]") do
+            table.insert(streams, match)
+        end
+
+        return streams
+    end
+
+    local streams = match_streams(line)
+
+    if utils.is_empty(streams) then
+        return
+    end
+
+    vim.print(streams)
+    utils.flash_highlight_range(utils.get_current_line_range(), 0, "Substitute", 250)
+end
 
 function M.silence_visual() end
 
