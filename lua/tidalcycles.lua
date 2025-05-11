@@ -30,7 +30,7 @@ local DEFAULTS = {
 local KEYMAPS = {
     send_line = {
         mode = 'n',
-        action = function ()
+        action = function()
             M.send_line()
         end,
         description = 'Send line to Tidal',
@@ -58,7 +58,9 @@ local KEYMAPS = {
     },
     send_visual = {
         mode = 'v',
-        action = "y<cmd>lua require('tidalcycles').send_reg()<CR>",
+        action = function()
+            M.send_visual()
+        end,
         description = 'Send selection to Tidal',
     },
     silence_visual = {
@@ -199,7 +201,6 @@ function M.send_line_to_tidal(text)
     vim.api.nvim_chan_send(state.tidal_process, text .. '\n')
 end
 
--- NOTE: Currently unused
 function M.send_register_to_tidal(register)
     if not register then
         register = ''
@@ -254,14 +255,67 @@ function M.preview_sound()
         last_sample.name = samplename
     end
 
-    -- TODO: maybe highlight flash sample range
     M.send_line_to_tidal('once $ s "' .. tidalcmd .. '"')
 end
+
+--- Silences all streams in the current line
+-- TODO: extract shared code with silence_node to helper function
+function M.silence_line()
+    local range = utils.get_current_line_range()
+
+    local nodes = utils.get_nodes_in_range(range)
+    if utils.is_empty(nodes) then
+        return
+    end
+
+    local streamlist = {}
+    for i = 1, 16 do
+        streamlist['d' .. i] = true
+    end
+    local used_streams = {}
+
+    for _, node in pairs(nodes) do
+        if node:type() == 'variable' then
+            local node_text = treesitter.get_node_text(node, 0)
+            if streamlist[node_text] then
+                table.insert(used_streams, node_text)
+            end
+        end
+    end
+
+    if utils.is_empty(used_streams) then
+        return
+    end
+
+    local silence_cmd = ':{\ndo\n'
+    for _, stream in pairs(used_streams) do
+        silence_cmd = silence_cmd .. '  ' .. stream .. ' $ silence\n'
+    end
+    silence_cmd = silence_cmd .. ':}'
+    utils.flash_highlight_range(range, 0, 'Substitute', 250)
+    M.send_line_to_tidal(silence_cmd)
+end
+
+--- Sends current visual selection to tidal
+function M.send_visual()
+    local range = utils.get_visual_range()
+
+    if utils.is_empty(range) then
+        return
+    end
+
+    local lines = vim.api.nvim_buf_get_text(0, range[1], range[2], range[3], range[4], {})
+    local text = table.concat(lines, '\n')
+
+    utils.flash_highlight_range(range, 0, 'Search', 250)
+    M.send_block_to_tidal(text)
+end
+
+function M.silence_visual() end
 
 --- Silences all streams in the node under the cursor
 --- TODO: extend this to also pickup non standard patterns
 --- created by the user e.g `p '123'` or `p "test"`
---- TODO: Add a single line version of this function
 function M.silence_node()
     local node = utils.get_node_at_cursor()
     if not node then
@@ -335,46 +389,9 @@ end
 
 function M.send_line()
     local line_content = vim.api.nvim_get_current_line()
-    utils.flash_highlight_range(utils.get_current_line_range(), 0, "Search", 250)
+    utils.flash_highlight_range(utils.get_current_line_range(), 0, 'Search', 250)
     M.send_line_to_tidal(line_content)
 end
-
--- TODO: improve stream matching logic 
--- currently could match wrong streams if samples share names with streams (d1-16)
--- TODO: maybe extract shared code with silence_node to helper function
-function M.silence_line()
-    local line = vim.api.nvim_get_current_line()
-    print(line)
-
-    local function match_streams(text)
-        local streams = {}
-        for match in string.gmatch(text, "d1[0-6]") do
-            table.insert(streams, match)
-        end
-        for match in string.gmatch(text, "d[1-9]") do
-            table.insert(streams, match)
-        end
-
-        return streams
-    end
-
-    local streams = match_streams(line)
-
-    if utils.is_empty(streams) then
-        return
-    end
-
-    local silence_cmd = ':{\ndo\n'
-    for _, stream in pairs(streams) do
-        silence_cmd = silence_cmd .. '  ' .. stream .. ' $ silence\n'
-    end
-    silence_cmd = silence_cmd .. ':}'
-    utils.flash_highlight_range(utils.get_current_line_range(), 0, "Substitute", 250)
-
-    M.send_line_to_tidal(silence_cmd)
-end
-
-function M.silence_visual() end
 
 function M.setup(args)
     args = vim.tbl_deep_extend('force', DEFAULTS, args)
