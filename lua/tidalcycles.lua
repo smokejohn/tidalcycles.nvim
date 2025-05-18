@@ -92,6 +92,8 @@ local state = {
     sclang = nil,
     tidal_process = nil,
     sclang_process = nil,
+    -- NOTE: Currently unused (buffer for tidal process stdout)
+    tidal_stdout = { '' },
 }
 
 -- TODO: Remove once we know sample count and reworked preview_sound
@@ -100,6 +102,83 @@ local last_sample = {
     num_played = 0,
     timer = nil,
 }
+
+--- Handler for ghci running tidal stdout and stderr data
+--- @param job_id integer process id
+--- @param data string[] Table containing the data sent to stdout/stderr
+--- @param event string Event type "stdout"/"stderr"
+--- TODO: Complete this function to properly clean ansi escape sequences and filter output
+--- NOTE: Currently unneeded (was added for getting all tidal functions but browse_tidal() does it better)
+local function on_tidal_job_output(job_id, data, event)
+    if not data or #data == 0 then
+        return
+    end
+
+    local function strip_ansi_codes(s)
+        return s:gsub('\27%[%d+[%d;]*[mKJH]', '') -- Remove ANSI sequences
+    end
+
+    local clean_data = {}
+    for _, value in pairs(data) do
+        table.insert(clean_data, (strip_ansi_codes(value)))
+    end
+
+    state.tidal_stdout[#state.tidal_stdout] = state.tidal_stdout[#state.tidal_stdout] .. clean_data[1]
+    for i = 2, #clean_data do
+        table.insert(state.tidal_stdout, clean_data[i])
+    end
+
+    for key, value in pairs(state.tidal_stdout) do
+        print(key .. ': ' .. value)
+    end
+end
+
+--- Browses Sound.Tidal.Context for a list of available functions
+--- @return string[]?
+--- TODO: Make this function start the subprocess async
+local function browse_tidal()
+    local process_result = vim.system({ 'ghci', '-ignore-dot-ghci' }, { text = true, stdin = { 'import Sound.Tidal.Context', ':browse Sound.Tidal.Context' } })
+        :wait()
+    if process_result.stderr ~= '' then
+        print('Could not obtain available tidal functions')
+        return nil
+    end
+
+    if process_result.stdout == '' then
+        return nil
+    end
+
+    local raw_lines = vim.split(process_result.stdout, '\n')
+    -- discard first and last line (they unneeded contain ghci repl output)
+    raw_lines = utils.slice_table(raw_lines, 2, -2)
+
+    -- truncate first line to get rid of ghci> repl characters
+    -- we disable .ghci-config file to ensure prompt looks like ghci>
+    raw_lines[1] = raw_lines[1]:gsub('ghci> ', '')
+
+    -- Putting each entry on its own line
+    local lines = {}
+    for _, line in pairs(raw_lines) do
+        -- matching lines that start with one or more whitespaces followed by any other character
+        -- these lines are indented continuation lines that we need to join to the previous line
+        local _, match_end = string.find(line, '^%s+%S')
+        if match_end then
+            lines[#lines] = lines[#lines] .. string.sub(line, match_end - 1)
+        else
+            table.insert(lines, line)
+        end
+    end
+
+    -- ignore lines that start with data, [new]type, class or an underscore
+    local functions = {}
+    for _, line in pairs(lines) do
+        if not (line:match('^type') or line:match('^newtype') or line:match('^data') or line:match('^class') or line:match('^_')) then
+            table.insert(functions, line)
+        end
+    end
+
+    return functions
+end
 
 local function boot_tidal(args)
     if state.tidal then
@@ -114,7 +193,8 @@ local function boot_tidal(args)
         boot_tidal(args)
         return
     end
-    state.tidal_process = vim.fn.termopen('ghci -ghci-script=' .. args.file, {
+    state.tidal_process = vim.fn.jobstart('ghci -ghci-script=' .. args.file, {
+        term = true,
         on_exit = function()
             if #vim.fn.win_findbuf(state.tidal) > 0 then
                 vim.api.nvim_win_close(vim.fn.win_findbuf(state.tidal)[1], true)
@@ -199,14 +279,6 @@ function M.send_line_to_tidal(text)
         return
     end
     vim.api.nvim_chan_send(state.tidal_process, text .. '\n')
-end
-
-function M.send_register_to_tidal(register)
-    if not register then
-        register = ''
-    end
-    local text = table.concat(vim.fn.getreg(register, 1, true), '\n')
-    M.send_block_to_tidal(text)
 end
 
 --- Plays the sample under the cursor once
@@ -311,6 +383,7 @@ function M.send_visual()
     M.send_block_to_tidal(text)
 end
 
+--- TODO: Implement silence streams in visual selection
 function M.silence_visual() end
 
 --- Silences all streams in the node under the cursor
@@ -398,9 +471,9 @@ function M.setup(args)
 
     vim.api.nvim_create_user_command('TidalStart', function()
         launch_tidal(args.boot)
-    end, { desc = 'launches Tidal instance, including sclang if so configured' })
+    end, { desc = 'Launches Tidal instance, including sclang if so configured' })
 
-    vim.api.nvim_create_user_command('TidalStop', exit_tidal, { desc = 'quits Tidal instance' })
+    vim.api.nvim_create_user_command('TidalStop', exit_tidal, { desc = 'Quits Tidal instance' })
 
     vim.api.nvim_create_autocmd({ 'BufEnter', 'BufWinEnter' }, {
         pattern = { '*.tidal' },

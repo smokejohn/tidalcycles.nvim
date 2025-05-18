@@ -5,6 +5,23 @@ local ts_utils = require('nvim-treesitter.ts_utils')
 -- 5.1 compatibility
 table.unpack = table.unpack or unpack
 
+---------------------------
+--- Table Utility Functions
+---------------------------
+
+function Utils.slice_table(table, start, stop, step)
+    local sliced = {}
+    if stop < 0 then
+        stop = #table + stop
+    end
+
+    for i = start or 1, stop or #table, step or 1 do
+        sliced[#sliced + 1] = table[i]
+    end
+
+    return sliced
+end
+
 --- Highlights the given node with hl_group for the given period
 --- @param node TSNode Treesitter node to apply the highlighting to
 --- @param bufnr integer Buffer id, or 0 for current buffer
