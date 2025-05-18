@@ -82,6 +82,16 @@ function Utils.get_visual_range()
     return { start_row, start_col, end_row, end_col }
 end
 
+function Utils.longest_line_in_table(table)
+    local max_length = 0
+    for _, line in pairs(table) do
+        if #line > max_length then
+            max_length = #line
+        end
+    end
+    return max_length
+end
+
 --- Returns true if A contains B, false otherwise
 --- @param rangeA integer[] Range A table { start_row, start_col, end_row, end_col }
 --- @param rangeB integer[] Range B table { start_row, start_col, end_row, end_col }

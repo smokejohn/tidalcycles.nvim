@@ -2,6 +2,7 @@ local M = {}
 local treesitter = require('vim.treesitter')
 local utils = require('utils')
 local ts_utils = require('nvim-treesitter.ts_utils')
+local hoogle = require('hoogle')
 
 local DEFAULTS = {
     boot = {
@@ -475,19 +476,21 @@ function M.send_line()
 end
 
 function M.floating_win()
+    local word = vim.fn.expand('<cWORD>')
+    local query_result = hoogle.query_database(word)
+    local window_width = utils.longest_line_in_table(query_result)
+
     local buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_lines(buf, 0, -1, true, {"test", "text"})
+    vim.api.nvim_buf_set_lines(buf, 0, -1, true, query_result)
     local opts = {
         border = 'rounded',
         relative = 'cursor',
         col = 0,
         row = 1,
-        width = 20,
-        height = 2,
+        width = window_width,
+        height = #query_result,
         style = 'minimal',
     }
-    -- local opts = {'relative': 'cursor', 'width': 10, 'height': 2, 'col': 0,
-    --     \ 'row': 1, 'anchor': 'NW', 'style': 'minimal'}
     local win = vim.api.nvim_open_win(buf, false, opts)
     -- optional: change highlight, otherwise Pmenu is used
     -- vim.api.nvim_set_option_value('winhl', 'Normal:MyHighlight', {win})
