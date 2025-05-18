@@ -33,7 +33,7 @@ local KEYMAPS = {
     float_win = {
         mode = 'n',
         action = function()
-            M.floating_win()
+            hoogle.floating_win()
         end,
         description = 'Open floating win',
     },
@@ -475,36 +475,18 @@ function M.send_line()
     M.send_line_to_tidal(line_content)
 end
 
-function M.floating_win()
-    local word = vim.fn.expand('<cWORD>')
-    local query_result = hoogle.query_database(word)
-    local window_width = utils.longest_line_in_table(query_result)
-
-    local buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_lines(buf, 0, -1, true, query_result)
-    local opts = {
-        border = 'rounded',
-        relative = 'cursor',
-        col = 0,
-        row = 1,
-        width = window_width,
-        height = #query_result,
-        style = 'minimal',
-    }
-    local win = vim.api.nvim_open_win(buf, false, opts)
-    -- optional: change highlight, otherwise Pmenu is used
-    -- vim.api.nvim_set_option_value('winhl', 'Normal:MyHighlight', {win})
-end
 
 function M.setup(args)
     args = vim.tbl_deep_extend('force', DEFAULTS, args)
+    hoogle.init()
 
+    -- global user commands
     vim.api.nvim_create_user_command('TidalStart', function()
         launch_tidal(args.boot)
     end, { desc = 'Launches Tidal instance, including sclang if so configured' })
-
     vim.api.nvim_create_user_command('TidalStop', exit_tidal, { desc = 'Quits Tidal instance' })
 
+    -- buffer specific tidal keymaps
     vim.api.nvim_create_autocmd({ 'BufEnter', 'BufWinEnter' }, {
         pattern = { '*.tidal' },
         callback = function()
