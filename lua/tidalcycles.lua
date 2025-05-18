@@ -16,6 +16,7 @@ local DEFAULTS = {
         split = 'v',
     },
     keymaps = {
+        float_win = 'K',
         preview_sound = '<C-P>',
         send_line = '<C-E>',
         silence_line = '<Leader>cml',
@@ -28,6 +29,13 @@ local DEFAULTS = {
 }
 
 local KEYMAPS = {
+    float_win = {
+        mode = 'n',
+        action = function()
+            M.floating_win()
+        end,
+        description = 'Open floating win',
+    },
     send_line = {
         mode = 'n',
         action = function()
@@ -464,6 +472,25 @@ function M.send_line()
     local line_content = vim.api.nvim_get_current_line()
     utils.flash_highlight_range(utils.get_current_line_range(), 0, 'Search', 250)
     M.send_line_to_tidal(line_content)
+end
+
+function M.floating_win()
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, true, {"test", "text"})
+    local opts = {
+        border = 'rounded',
+        relative = 'cursor',
+        col = 0,
+        row = 1,
+        width = 20,
+        height = 2,
+        style = 'minimal',
+    }
+    -- local opts = {'relative': 'cursor', 'width': 10, 'height': 2, 'col': 0,
+    --     \ 'row': 1, 'anchor': 'NW', 'style': 'minimal'}
+    local win = vim.api.nvim_open_win(buf, false, opts)
+    -- optional: change highlight, otherwise Pmenu is used
+    -- vim.api.nvim_set_option_value('winhl', 'Normal:MyHighlight', {win})
 end
 
 function M.setup(args)
