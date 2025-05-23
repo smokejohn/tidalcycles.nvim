@@ -1,7 +1,6 @@
 local M = {}
 local treesitter = require('vim.treesitter')
 local utils = require('utils')
-local ts_utils = require('nvim-treesitter.ts_utils')
 local hoogle = require('hoogle')
 
 local DEFAULTS = {
@@ -33,9 +32,9 @@ local KEYMAPS = {
     float_win = {
         mode = 'n',
         action = function()
-            hoogle.floating_win()
+            hoogle.show_docs()
         end,
-        description = 'Open floating win',
+        description = 'Show hoogle documentation',
     },
     send_line = {
         mode = 'n',
@@ -142,52 +141,6 @@ local function on_tidal_job_output(job_id, data, event)
     end
 end
 
---- Browses Sound.Tidal.Context for a list of available functions
---- @return string[]?
---- TODO: Make this function start the subprocess async
-local function browse_tidal()
-    local process_result = vim.system({ 'ghci', '-ignore-dot-ghci' }, { text = true, stdin = { 'import Sound.Tidal.Context', ':browse Sound.Tidal.Context' } })
-        :wait()
-    if process_result.stderr ~= '' then
-        print('Could not obtain available tidal functions')
-        return nil
-    end
-
-    if process_result.stdout == '' then
-        return nil
-    end
-
-    local raw_lines = vim.split(process_result.stdout, '\n')
-    -- discard first and last line (they unneeded contain ghci repl output)
-    raw_lines = utils.slice_table(raw_lines, 2, -2)
-
-    -- truncate first line to get rid of ghci> repl characters
-    -- we disable .ghci-config file to ensure prompt looks like ghci>
-    raw_lines[1] = raw_lines[1]:gsub('ghci> ', '')
-
-    -- Putting each entry on its own line
-    local lines = {}
-    for _, line in pairs(raw_lines) do
-        -- matching lines that start with one or more whitespaces followed by any other character
-        -- these lines are indented continuation lines that we need to join to the previous line
-        local _, match_end = string.find(line, '^%s+%S')
-        if match_end then
-            lines[#lines] = lines[#lines] .. string.sub(line, match_end - 1)
-        else
-            table.insert(lines, line)
-        end
-    end
-
-    -- ignore lines that start with data, [new]type, class or an underscore
-    local functions = {}
-    for _, line in pairs(lines) do
-        if not (line:match('^type') or line:match('^newtype') or line:match('^data') or line:match('^class') or line:match('^_')) then
-            table.insert(functions, line)
-        end
-    end
-
-    return functions
-end
 
 local function boot_tidal(args)
     if state.tidal then
@@ -475,10 +428,21 @@ function M.send_line()
     M.send_line_to_tidal(line_content)
 end
 
+local function configure_blink()
+    local blink = require('blink.cmp')
+
+    blink.add_source_provider('tidal', {name = 'tidal', module = 'completion-source', enabled = true})
+    blink.add_filetype_source('haskell', 'tidal')
+
+end
+
+
 
 function M.setup(args)
     args = vim.tbl_deep_extend('force', DEFAULTS, args)
     hoogle.init()
+
+    configure_blink()
 
     -- global user commands
     vim.api.nvim_create_user_command('TidalStart', function()
@@ -487,7 +451,7 @@ function M.setup(args)
     vim.api.nvim_create_user_command('TidalStop', exit_tidal, { desc = 'Quits Tidal instance' })
 
     -- buffer specific tidal keymaps
-    vim.api.nvim_create_autocmd({ 'BufEnter', 'BufWinEnter' }, {
+    vim.api.nvim_create_autocmd({ 'BufRead', 'BufNewFile', 'BufEnter', 'BufWinEnter' }, {
         pattern = { '*.tidal' },
         callback = function()
             vim.cmd('set ft=haskell')

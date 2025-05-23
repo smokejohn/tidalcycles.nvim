@@ -42,6 +42,7 @@ function Hoogle.query_database(query)
     end
     local query_result = vim.split(process_result.stdout, '\n', {})
 
+    -- TODO: filter result, catch cases with no practical result and display message
     return query_result
 end
 
@@ -49,12 +50,13 @@ function Hoogle.generate_database()
     local process_result = vim.system({ 'hoogle', 'generate', 'tidal' }):wait()
 end
 
-function Hoogle.floating_win()
+function Hoogle.show_docs()
     local word = vim.fn.expand('<cWORD>')
     local query_result = Hoogle.query_database(word)
     local window_width = utils.longest_line_in_table(query_result)
 
     doc_buffer = vim.api.nvim_create_buf(false, true)
+    -- TODO: set buffer to markdown and use highlighting to improve readability
     vim.api.nvim_buf_set_lines(doc_buffer, 0, -1, true, query_result)
     local opts = {
         border = 'rounded',
