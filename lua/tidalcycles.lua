@@ -141,7 +141,6 @@ local function on_tidal_job_output(job_id, data, event)
     end
 end
 
-
 local function boot_tidal(args)
     if state.tidal then
         local ok = pcall(vim.api.nvim_set_current_buf, state.tidal)
@@ -431,12 +430,9 @@ end
 local function configure_blink()
     local blink = require('blink.cmp')
 
-    blink.add_source_provider('tidal', {name = 'tidal', module = 'completion-source', enabled = true})
-    blink.add_filetype_source('haskell', 'tidal')
-
+    blink.add_source_provider('tidal', { name = 'tidal', module = 'completion-source', enabled = true })
+    blink.add_filetype_source('tidal', 'tidal')
 end
-
-
 
 function M.setup(args)
     args = vim.tbl_deep_extend('force', DEFAULTS, args)
@@ -450,11 +446,20 @@ function M.setup(args)
     end, { desc = 'Launches Tidal instance, including sclang if so configured' })
     vim.api.nvim_create_user_command('TidalStop', exit_tidal, { desc = 'Quits Tidal instance' })
 
-    -- buffer specific tidal keymaps
-    vim.api.nvim_create_autocmd({ 'BufRead', 'BufNewFile', 'BufEnter', 'BufWinEnter' }, {
+    -- register tidal as a new filetype
+    vim.api.nvim_create_autocmd({ 'BufRead', 'BufNewFile' }, {
         pattern = { '*.tidal' },
         callback = function()
-            vim.cmd('set ft=haskell')
+            -- vim.bo.syntax = 'tidal' -- mark buffer syntax
+            vim.bo.filetype = 'tidal'
+        end,
+    })
+    -- inform treesitter about new filetype
+    treesitter.language.register('haskell', 'tidal')
+    -- buffer specific tidal keymaps
+    vim.api.nvim_create_autocmd('FileType', {
+        pattern = 'tidal',
+        callback = function()
             for key, value in pairs(args.keymaps) do
                 key_map(key, value)
             end
