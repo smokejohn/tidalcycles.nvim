@@ -1,6 +1,6 @@
 local Hoogle = {}
-local utils = require('utils')
-local log = require('log')
+local utils = require('tidalcycles.utils')
+local log = require('tidalcycles.log')
 
 -- 5.1 compatibility
 table.unpack = table.unpack or unpack

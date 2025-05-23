@@ -1,7 +1,7 @@
 --- @module 'blink.cmp'
 --- @class blink.cmp.Source
 local source = {}
-local utils = require('utils')
+local utils = require('tidalcycles.utils')
 
 --- Browses Sound.Tidal.Context for a list of available functions
 --- @return string[]?
